@@ -140,4 +140,24 @@ var _ = Describe("DesiredLRP Requests", func() {
 			})
 		})
 	})
+
+	Describe("DesiredLRPsRequest VolumeMountDriver", func() {
+		It("serializes and deserializes VolumeMountDriver field", func() {
+			request := models.DesiredLRPsRequest{
+				Domain:            "test-domain",
+				ProcessGuids:      []string{"guid-1"},
+				VolumeMountDriver: "test-driver",
+			}
+
+			data, err := request.Marshal()
+			Expect(err).NotTo(HaveOccurred())
+
+			var newRequest models.DesiredLRPsRequest
+			err = newRequest.Unmarshal(data)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(newRequest.VolumeMountDriver).To(Equal("test-driver"))
+			Expect(newRequest.GetVolumeMountDriver()).To(Equal("test-driver"))
+		})
+	})
 })

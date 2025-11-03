@@ -218,6 +218,131 @@ var _ = Describe("DesiredLRPDB", func() {
 			})
 		})
 
+		Context("when filtering by volume mount driver", func() {
+			var expectedLRPWithDriver *models.DesiredLRP
+			var expectedLRPWithDifferentDriver *models.DesiredLRP
+			var expectedLRPWithMultipleVolumeMounts *models.DesiredLRP
+			var expectedLRPWithNoVolumeMounts *models.DesiredLRP
+
+			BeforeEach(func() {
+				// Create LRP with specific volume mount driver
+				expectedLRPWithDriver = model_helpers.NewValidDesiredLRP("d-with-driver")
+				expectedLRPWithDriver.Domain = "driver-domain"
+				expectedLRPWithDriver.VolumeMounts = []*models.VolumeMount{
+					{
+						Driver:       "test-driver",
+						ContainerDir: "/mnt/test",
+						Mode:         "rw",
+						Shared: &models.SharedDevice{
+							VolumeId: "vol-id",
+						},
+					},
+				}
+				Expect(sqlDB.DesireLRP(ctx, logger, expectedLRPWithDriver)).To(Succeed())
+
+				// Create LRP with different volume mount driver
+				expectedLRPWithDifferentDriver = model_helpers.NewValidDesiredLRP("d-with-different-driver")
+				expectedLRPWithDifferentDriver.Domain = "driver-domain"
+				expectedLRPWithDifferentDriver.VolumeMounts = []*models.VolumeMount{
+					{
+						Driver:       "other-driver",
+						ContainerDir: "/mnt/other",
+						Mode:         "r",
+						Shared: &models.SharedDevice{
+							VolumeId: "vol-id-2",
+						},
+					},
+				}
+				Expect(sqlDB.DesireLRP(ctx, logger, expectedLRPWithDifferentDriver)).To(Succeed())
+
+				// Create LRP with multiple volume mounts (one matching, one not)
+				expectedLRPWithMultipleVolumeMounts = model_helpers.NewValidDesiredLRP("d-with-multiple-mounts")
+				expectedLRPWithMultipleVolumeMounts.Domain = "driver-domain"
+				expectedLRPWithMultipleVolumeMounts.VolumeMounts = []*models.VolumeMount{
+					{
+						Driver:       "other-driver",
+						ContainerDir: "/mnt/other",
+						Mode:         "r",
+						Shared: &models.SharedDevice{
+							VolumeId: "vol-id-3",
+						},
+					},
+					{
+						Driver:       "test-driver",
+						ContainerDir: "/mnt/test2",
+						Mode:         "rw",
+						Shared: &models.SharedDevice{
+							VolumeId: "vol-id-4",
+						},
+					},
+					{
+						Driver:       "third-driver",
+						ContainerDir: "/mnt/third",
+						Mode:         "r",
+						Shared: &models.SharedDevice{
+							VolumeId: "vol-id-5",
+						},
+					},
+				}
+				Expect(sqlDB.DesireLRP(ctx, logger, expectedLRPWithMultipleVolumeMounts)).To(Succeed())
+
+				// Create LRP with no volume mounts
+				expectedLRPWithNoVolumeMounts = model_helpers.NewValidDesiredLRP("d-with-no-mounts")
+				expectedLRPWithNoVolumeMounts.Domain = "driver-domain"
+				expectedLRPWithNoVolumeMounts.VolumeMounts = []*models.VolumeMount{}
+				Expect(sqlDB.DesireLRP(ctx, logger, expectedLRPWithNoVolumeMounts)).To(Succeed())
+			})
+
+			It("returns LRPs that have a volume mount with matching driver", func() {
+				desiredLRPs, err := sqlDB.DesiredLRPs(ctx, logger, models.DesiredLRPFilter{VolumeMountDriver: "test-driver"})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(desiredLRPs).To(HaveLen(2))
+				processGuids := []string{desiredLRPs[0].ProcessGuid, desiredLRPs[1].ProcessGuid}
+				Expect(processGuids).To(ContainElements("d-with-driver", "d-with-multiple-mounts"))
+			})
+
+			It("finds LRPs with matching driver among multiple volume mounts", func() {
+				desiredLRPs, err := sqlDB.DesiredLRPs(ctx, logger, models.DesiredLRPFilter{VolumeMountDriver: "third-driver"})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(desiredLRPs).To(HaveLen(1))
+				Expect(desiredLRPs[0].ProcessGuid).To(Equal("d-with-multiple-mounts"))
+				Expect(desiredLRPs[0].VolumeMounts).To(HaveLen(3))
+			})
+
+			It("returns empty list when no LRPs have matching volume mount driver", func() {
+				desiredLRPs, err := sqlDB.DesiredLRPs(ctx, logger, models.DesiredLRPFilter{VolumeMountDriver: "non-existent-driver"})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(desiredLRPs).To(HaveLen(0))
+			})
+
+			It("excludes LRPs with no volume mounts", func() {
+				desiredLRPs, err := sqlDB.DesiredLRPs(ctx, logger, models.DesiredLRPFilter{VolumeMountDriver: "test-driver"})
+				Expect(err).NotTo(HaveOccurred())
+
+				processGuids := make([]string, len(desiredLRPs))
+				for i, lrp := range desiredLRPs {
+					processGuids[i] = lrp.ProcessGuid
+				}
+				Expect(processGuids).NotTo(ContainElement("d-with-no-mounts"))
+			})
+
+			It("can combine volume mount driver filter with domain filter", func() {
+				desiredLRPs, err := sqlDB.DesiredLRPs(ctx, logger, models.DesiredLRPFilter{
+					Domain:            "driver-domain",
+					VolumeMountDriver: "test-driver",
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(desiredLRPs).To(HaveLen(2))
+				for _, lrp := range desiredLRPs {
+					Expect(lrp.Domain).To(Equal("driver-domain"))
+				}
+			})
+		})
+
 		Context("when the run info is invalid", func() {
 			BeforeEach(func() {
 				queryStr := "UPDATE desired_lrps SET run_info = ? WHERE process_guid = ?"

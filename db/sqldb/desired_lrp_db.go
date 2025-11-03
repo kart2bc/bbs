@@ -126,7 +126,7 @@ func (db *SQLDB) DesiredLRPs(ctx context.Context, logger lager.Logger, filter mo
 	}
 
 	if filter.VolumeMountDriver != "" {
-		wheres = append(wheres, "JSON_UNQUOTE(JSON_EXTRACT(CAST(runInfo AS JSON), '$.VolumeMountDriver')) LIKE CONCAT('%', ?, '%')")
+		wheres = append(wheres, "JSON_SEARCH(JSON_EXTRACT(CAST(runInfo AS JSON), '$.VolumeMounts[*].Driver'), 'one', ?) IS NOT NULL")
 		values = append(values, filter.VolumeMountDriver)
 	}
 
